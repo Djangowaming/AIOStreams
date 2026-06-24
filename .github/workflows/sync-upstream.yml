@@ -1,0 +1,67 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feat/full-feature
+        uses: actions/checkout@v4
+        with:
+          ref: feat/full-feature
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Reset upstream remote
+        run: |
+          git remote remove upstream || true
+          git remote add upstream https://github.com/Viren070/AIOStreams.git
+          git fetch upstream
+
+      - name: Check if upstream/dev is ahead
+        id: check
+        run: |
+          if git merge-base --is-ancestor upstream/dev HEAD; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+            echo "No new commits in upstream/dev"
+          else
+            if git diff --quiet HEAD upstream/dev; then
+              echo "up_to_date=true" >> $GITHUB_OUTPUT
+              echo "No actual diff in upstream/dev"
+            else
+              echo "up_to_date=false" >> $GITHUB_OUTPUT
+              echo "New commits detected in upstream/dev"
+            fi
+          fi
+
+      - name: Merge upstream/dev
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          set -e
+          echo "Merging upstream/dev into feat/full-feature..."
+          git merge upstream/dev --no-edit --no-ff
+
+      - name: Build Docker image
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          set -e
+          echo "Building Docker image..."
+          docker build -t aiostreams-test .
+
+      - name: Push merged branch
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          echo "Pushing updated feat/full-feature branch..."
+          git push origin feat/full-feature
