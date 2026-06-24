@@ -9,8 +9,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  setup:
+    name: Resolve owner
+    runs-on: ubuntu-latest
+    outputs:
+      owner_lower: ${{ steps.lowercase.outputs.owner_lower }}
+    steps:
+      - name: Lowercase repository owner
+        id: lowercase
+        run: |
+          OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "owner_lower=${OWNER_LOWER}" >> $GITHUB_OUTPUT
+          echo "Owner: ${{ github.repository_owner }} → ${OWNER_LOWER}"
+
   build:
     name: build (${{ matrix.suffix }})
+    needs: setup
     permissions:
       packages: write
       contents: read
@@ -35,7 +49,7 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: ${{ needs.setup.outputs.owner_lower }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Buildx
@@ -60,7 +74,7 @@ jobs:
           push: true
           context: .
           file: ./Dockerfile
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/aiostreams,push-by-digest=true,name-canonical=true
+          outputs: type=image,name=ghcr.io/${{ needs.setup.outputs.owner_lower }}/aiostreams,push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=feat-full-feature-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=feat-full-feature-${{ matrix.suffix }}
 
@@ -76,7 +90,7 @@ jobs:
 
   merge:
     name: Merge manifests
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -93,7 +107,7 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: ${{ needs.setup.outputs.owner_lower }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Buildx
@@ -102,6 +116,6 @@ jobs:
       - name: Create and push manifest
         run: |
           docker buildx imagetools create \
-            -t "ghcr.io/${{ github.repository_owner }}/aiostreams:feat-full-feature" \
-            "ghcr.io/${{ github.repository_owner }}/aiostreams@$(cat /tmp/digests/amd64)" \
-            "ghcr.io/${{ github.repository_owner }}/aiostreams@$(cat /tmp/digests/arm64)"
+            -t "ghcr.io/${{ needs.setup.outputs.owner_lower }}/aiostreams:feat-full-feature" \
+            "ghcr.io/${{ needs.setup.outputs.owner_lower }}/aiostreams@$(cat /tmp/digests/amd64)" \
+            "ghcr.io/${{ needs.setup.outputs.owner_lower }}/aiostreams@$(cat /tmp/digests/arm64)"
