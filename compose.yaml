@@ -1,6 +1,8 @@
 services:
   aiostreams:
-    image: ghcr.io/viren070/aiostreams:latest
+    # Auto-built on push to feat/full-feature via .github/workflows/feat-full-feature-docker.yml
+    # Replace <your-github-username> with your actual GitHub username
+    image: ghcr.io/<your-github-username>/aiostreams:feat-full-feature
     container_name: aiostreams
     restart: unless-stopped
     ports:
