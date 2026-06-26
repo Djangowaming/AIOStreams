@@ -151,14 +151,16 @@ export async function getPlayChain(
 ): Promise<ResolvedPlayChain | undefined> {
   const record = await chainCache().get(decoded.listKey);
   if (!record) return undefined;
-  const after = record.items.slice(decoded.index + 1);
-  const items = after
-    .filter(
-      (it) =>
-        record.contentTypes.includes(it.type) &&
-        (record.allowCrossType || it.type === clickedType)
-    )
-    .slice(0, decoded.count);
+  // Include every chain item except the one we just clicked (which is already
+  // attempts[0]). Previously this only took `slice(decoded.index + 1)`, which
+  // silently stripped the entire fallback list when a precache ping — or any
+  // click — landed on the lowest-indexed stream in the chain. We also drop the
+  // clicked item itself so it isn't retried after the explicit click.
+  const items = record.items.filter((it, i) => {
+    if (i === decoded.index) return false;
+    if (!record.contentTypes.includes(it.type)) return false;
+    return record.allowCrossType || it.type === clickedType;
+  }).slice(0, decoded.count);
   return {
     items,
     parallel: record.parallel,

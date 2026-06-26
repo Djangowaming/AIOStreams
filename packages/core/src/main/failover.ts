@@ -195,6 +195,21 @@ async function runSequential(
     const isLast = i === attempts.length - 1;
     try {
       const url = await attempts[i].resolve();
+      // A non-throwing `undefined` means the resolve went through every step
+      // (auth, add magnet, status poll, …) and found the item is still
+      // downloading. In a manual user click we want to surface that as
+      // "DOWNLOADING" — but in a precache ping the whole point of failover is
+      // to find a *playable* item so the chain should keep stepping. Because
+      // sequential mode never passes an AbortController, the in-flight
+      // download on the abandoned attempt is not torn down.
+      if (url === undefined && !isLast) {
+        failedOver = true;
+        logger.info(
+          { attempt: i, label: attempts[i]?.label },
+          'failover attempt returned undefined (still downloading); trying next'
+        );
+        continue;
+      }
       return { url, failedOver: failedOver || i > 0 };
     } catch (err: any) {
       const retryable = isFailoverRetryableError(err);
