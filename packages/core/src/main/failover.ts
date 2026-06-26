@@ -208,10 +208,7 @@ async function runSequential(
         return { error: err, failedOver };
       }
       failedOver = true;
-      logger.warn(
-        { attempt: i, code: err?.code, message: err?.message },
-        'failover attempt failed; trying next'
-      );
+      logger.warn({ attempt: i, err }, 'failover attempt failed; trying next');
     }
   }
   return { failedOver };
@@ -251,10 +248,17 @@ function runParallel(
       for (let i = 0; i < controllers.length; i++) {
         if (i !== b.index) controllers[i]?.abort();
       }
+      const winningLabel = attempts[b.index]?.label;
+      if (b.index > 0) {
+        logger.info(
+          { attempt: b.index, label: winningLabel },
+          'failover succeeded on a lower-priority attempt'
+        );
+      }
       resolve({
         url: b.url,
         failedOver: b.index > 0,
-        winningLabel: attempts[b.index]?.label,
+        winningLabel,
       });
     }
 
@@ -263,6 +267,10 @@ function runParallel(
       settled = true;
       clearTimers();
       for (const c of controllers) c?.abort();
+      logger.warn(
+        { attempts: launched, failed: failed.size },
+        'all failover attempts failed'
+      );
       resolve({
         error: pickError(errors),
         failedOver: launched > 1,
@@ -271,6 +279,10 @@ function runParallel(
 
     function onDeadline() {
       if (settled) return;
+      logger.warn(
+        { maxWaitMs: cfg.maxWaitMs, hasBest: best !== null },
+        'failover deadline reached'
+      );
       if (best) finishWin(best);
       else finishFail();
     }
@@ -324,6 +336,10 @@ function runParallel(
           active--;
           failed.add(i);
           errors.push(err);
+          logger.warn(
+            { attempt: i, label: attempts[i]?.label, err },
+            'failover attempt failed'
+          );
           if (settled) return;
           // A lower-index failure can unblock accepting the current best.
           maybeAccept();
