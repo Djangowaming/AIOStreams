@@ -6,7 +6,12 @@ import {
   UserData,
 } from '../db/index.js';
 import { Preset } from './preset.js';
-import { constants, HTTP_STREAM_TYPE, RESOURCES } from '../utils/index.js';
+import {
+  constants,
+  createLogger,
+  HTTP_STREAM_TYPE,
+  RESOURCES,
+} from '../utils/index.js';
 import { config as appConfig } from '../config/index.js';
 import { FileParser, StreamParser } from '../parser/index.js';
 
@@ -16,9 +21,30 @@ const supportedResources = [
 ];
 
 class PenguPlayStreamParser extends StreamParser {
+  private readonly logger = createLogger('penguplay-parser');
+
+  override parse(stream: Stream): ParsedStream | { skip: true } {
+    this.logger.debug(
+      {
+        name: stream.name,
+        description: stream.description,
+        url: stream.url,
+        title: stream.title,
+        infoHash: stream.infoHash,
+        externalUrl: stream.externalUrl,
+        nzbUrl: stream.nzbUrl,
+        ytId: stream.ytId,
+        behaviorHints: stream.behaviorHints,
+      },
+      'raw penguplay stream'
+    );
+    return super.parse(stream);
+  }
+
   protected override get indexerRegex(): RegExp | undefined {
     // Match the source/provider indicator at the end of description lines
-    return /(?:^|\n)\s*🔗\s*(.+?)(?:\n|$)/i;
+    // PenguPlay uses both 🔗 and 🛰️ emojis for source lines
+    return /(?:^|\n)\s*(?:🔗|🛰️)\s*(?:Source:\s*)?(.+?)(?:\n|$)/i;
   }
 
   protected override getFilename(
@@ -33,22 +59,40 @@ class PenguPlayStreamParser extends StreamParser {
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
 
-    // Look for lines that contain file-like patterns (year, resolution, codec, etc.)
-    const filePattern =
-      /\b(?:19|20)\d{2}\b|\d+p\b|\b4K\b|WEB[-. ]?DL|HDRip|BluRay|BDRip|BRRip|x\d{3}\b|HEVC|H\.?26[45]|AVC|AV1|VP9/i;
+    // Parse description lines by emoji prefix for structured extraction
+    let titleLine: string | undefined;
+    let formatLine: string | undefined;
 
     for (const line of lines) {
-      if (filePattern.test(line) || FileParser.parse(line)?.year) {
-        return line
-          .replace(/^\[\w+\s*\]\s*/i, '')
-          .replace(/^\P{L}+/u, '')
-          .trim();
+      if (line.startsWith('🍿')) {
+        titleLine = line.replace(/^🍿\s*/, '').trim();
+      } else if (line.startsWith('🎞️') || line.startsWith('🎞')) {
+        formatLine = line.replace(/^🎞️?\s*/, '').trim();
       }
     }
 
-    // Fallback: return the first line after stripping emoji/symbol prefixes
-    const filename = lines[0];
-    return filename?.replace(/^\P{L}+/u, '').trim();
+    // Fallback: use first line as title if no 🍿 found
+    if (!titleLine) {
+      titleLine = lines[0]?.replace(/^\P{L}+/u, '').trim();
+      // If second line doesn't look like metadata, don't treat it as format
+      if (!formatLine && lines.length > 1) {
+        formatLine = lines[1]?.replace(/^\P{L}+/u, '').trim();
+      }
+    }
+
+    // Combine title and format info so FileParser can extract year, resolution,
+    // codecs, quality, container, etc. from the combined string
+    if (titleLine && formatLine) {
+      // Strip the bitrate (~XX Mbps) and trailing separators from the format line
+      const cleanFormat = formatLine
+        .replace(/~\d+(\.\d+)?\s*Mbps/i, '')
+        .replace(/[\s•]+$/g, '')
+        .trim();
+      return `${titleLine} ${cleanFormat}`;
+    }
+
+    if (titleLine) return titleLine;
+    return undefined;
   }
 
   protected override getResolution(
@@ -73,6 +117,39 @@ class PenguPlayStreamParser extends StreamParser {
       return res.toLowerCase();
     }
 
+    return undefined;
+  }
+
+  protected override getBitrate(
+    stream: Stream,
+    currentParsedStream: ParsedStream
+  ): number | undefined {
+    // Extract bitrate from the 🎞️ format line, e.g. "~16.7 Mbps"
+    const text = stream.description || stream.title || '';
+    const match = text.match(/~(\d+(?:\.\d+)?)\s*Mbps/i);
+    if (match) {
+      return Math.round(parseFloat(match[1]) * 1_000_000);
+    }
+    return super.getBitrate(stream, currentParsedStream);
+  }
+
+  protected override getReleaseGroup(
+    stream: Stream,
+    currentParsedStream: ParsedStream
+  ): string | undefined {
+    // Extract release group from the 🛰️ source line or the addon name
+    // Name format: "🐧 PenguPlay ❄️ 4K • 4KHDHub · FSL"
+    // 🛰️ line format: "Source: 4KHDHub · FSL"
+    const description = stream.description || '';
+    const sourceMatch = description.match(
+      /(?:^|\n)\s*🛰️\s*(?:Source:\s*)?(.+?)(?:\n|$)/i
+    );
+    if (sourceMatch) {
+      // Take the first part before "·" as the primary release group
+      const source = sourceMatch[1].trim();
+      const parts = source.split(/\s*·\s*/);
+      return parts[0].trim() || undefined;
+    }
     return undefined;
   }
 }

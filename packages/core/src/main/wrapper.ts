@@ -619,6 +619,15 @@ export class Wrapper {
       }
 
       const data: unknown = await res.json();
+      if (
+        this.addon.preset.type === 'penguplay' &&
+        (resource === 'stream' || resource === 'subtitles')
+      ) {
+        logger.info(
+          { addon: this.addon.name, resource, data },
+          'raw penguplay response'
+        );
+      }
       return validator(data);
     };
 
