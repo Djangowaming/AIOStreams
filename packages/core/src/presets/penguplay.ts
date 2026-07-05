@@ -133,6 +133,22 @@ class PenguPlayStreamParser extends StreamParser {
     return super.getBitrate(stream, currentParsedStream);
   }
 
+  protected override getSize(
+    stream: Stream,
+    currentParsedStream: ParsedStream
+  ): number | undefined {
+    // Extract size from the 💾 line, e.g. "💾 13.44 GB"
+    // This avoids the base parser matching "~16.7 Mbps" as "16.7 MB"
+    const text = stream.description || stream.title || '';
+    const sizeMatch = text.match(/💾\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)/i);
+    if (sizeMatch) {
+      return this.calculateBytesFromSizeString(
+        `${sizeMatch[1]} ${sizeMatch[2]}`
+      );
+    }
+    return super.getSize(stream, currentParsedStream);
+  }
+
   protected override getReleaseGroup(
     stream: Stream,
     currentParsedStream: ParsedStream
