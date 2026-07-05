@@ -605,4 +605,8 @@ export const presetsSchema = {
     timeoutEnv: 'DEFAULT_ASTREAM_TIMEOUT',
     userAgentEnv: 'DEFAULT_ASTREAM_USER_AGENT',
   }),
+  penguplay: {
+    defaultTimeout: timeoutField('PenguPlay', 'DEFAULT_PENGUPLAY_TIMEOUT'),
+    defaultUserAgent: userAgentField('PenguPlay', 'DEFAULT_PENGUPLAY_USER_AGENT'),
+  },
 } satisfies RuntimeConfigSection;
